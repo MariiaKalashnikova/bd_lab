@@ -1,0 +1,160 @@
+import psycopg2
+import threading
+import time
+
+
+def create_table():
+    conn = psycopg2.connect("dbname = lab_2 user = postgres password = 4712")
+    cursor = conn.cursor()
+    cursor.execute("DROP TABLE IF EXISTS user_counter;")
+
+    cursor.execute("CREATE TABLE user_counter (user_id SERIAL PRIMARY KEY, counter INTEGER DEFAULT 0, version INTEGER DEFAULT 0);")
+    cursor.execute("INSERT INTO user_counter DEFAULT VALUES;")   
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def lost_update():
+    conn = psycopg2.connect("dbname = lab_2 user = postgres password = 4712")
+    cursor = conn.cursor()
+    
+    for i in range(1, 10_001):
+        cursor.execute("SELECT counter FROM user_counter WHERE user_id = 1")
+        (counter,) = cursor.fetchone()
+        counter = counter + 1
+        cursor.execute("UPDATE user_counter SET counter = %s WHERE user_id = %s", (counter, 1))
+        conn.commit()
+    
+    cursor.close()
+    conn.close()
+
+def in_place_update():
+    conn = psycopg2.connect("dbname = lab_2 user = postgres password = 4712")
+    cursor = conn.cursor()
+
+    for i in range(1, 10_001):
+        cursor.execute("UPDATE user_counter SET counter = counter + 1 WHERE user_id = %s", (1,))
+        conn.commit()
+
+    cursor.close()
+    conn.close()
+
+def row_level_locking():
+    conn = psycopg2.connect("dbname = lab_2 user = postgres password = 4712")
+    cursor = conn.cursor()
+
+    for i in range(1, 10_001):
+        cursor.execute("SELECT counter FROM user_counter WHERE user_id = 1 FOR UPDATE")
+        (counter,) = cursor.fetchone()
+        counter = counter + 1
+        cursor.execute("UPDATE user_counter SET counter = %s WHERE user_id = %s", (counter, 1))
+        conn.commit()
+
+    cursor.close()
+    conn.close()
+
+def optimistic_concurrency_control():
+    conn = psycopg2.connect("dbname = lab_2 user = postgres password = 4712")
+    cursor = conn.cursor()
+
+    for i in range(1, 10_001):
+        while True:
+            cursor.execute("SELECT counter, version FROM user_counter WHERE user_id = 1")
+            (counter, version) = cursor.fetchone()
+            counter = counter + 1
+            cursor.execute("UPDATE user_counter SET counter = %s, version = %s WHERE user_id = %s AND version = %s", (counter, version + 1, 1, version))
+            conn.commit()
+            if cursor.rowcount > 0: break            
+    cursor.close()
+    conn.close()
+
+
+def final_counter():
+    conn = psycopg2.connect("dbname = lab_2 user = postgres password = 4712")
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT counter FROM user_counter WHERE user_id = 1")
+    (counter,) = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    return counter
+
+#Виконання Lost Update
+create_table()
+threads = []
+
+for i in range(1, 11):
+    thread = threading.Thread(target = lost_update)
+    threads.append(thread)
+
+start_time = time.time()
+for thread in threads:
+    thread.start()
+
+for thread in threads:
+    thread.join()
+
+end_time = time.time()
+print("Час у секундах (Lost Update): ", end_time - start_time)
+print("Значення counter (Lost Update): ", final_counter())
+
+#Виконання In-place update
+create_table()
+threads = []
+
+for i in range(1, 11):
+    thread = threading.Thread(target = in_place_update)
+    threads.append(thread)
+
+start_time = time.time()
+for thread in threads:
+    thread.start()
+
+for thread in threads:
+    thread.join()
+
+end_time = time.time()
+print("Час у секундах (In-place update): ", end_time - start_time)
+print("Значення counter (In-place update): ", final_counter())
+
+
+#Виконання Row-level locking
+create_table()
+threads = []
+
+for i in range(1, 11):
+    thread = threading.Thread(target = row_level_locking)
+    threads.append(thread)
+
+start_time = time.time()
+for thread in threads:
+    thread.start()
+
+for thread in threads:
+    thread.join()
+
+end_time = time.time()
+print("Час у секундах (Row-level locking): ", end_time - start_time)
+print("Значення counter (Row-level locking): ", final_counter())
+
+#Виконання Optimistic concurrency control
+create_table()
+threads = []
+
+for i in range(1, 11):
+    thread = threading.Thread(target = optimistic_concurrency_control)
+    threads.append(thread)
+
+start_time = time.time()
+for thread in threads:
+    thread.start()
+
+for thread in threads:
+    thread.join()
+
+end_time = time.time()
+print("Час у секундах (Optimistic concurrency control): ", end_time - start_time)
+print("Значення counter (Optimistic concurrency control): ", final_counter())
